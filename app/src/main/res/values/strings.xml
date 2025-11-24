@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">NS Photo Editor</string>
+    <string name="feature">Feature</string>
+    <string name="feature_image">Feature Image</string>
+    <string name="open_camera">Open Camera</string>
+    <string name="open_gallery">Open Gallery</string>
+    <string name="recently_edited">Recently Edited</string>
+    <string name="recent_image">Recent Image</string>
+    <string name="add_image">Add image</string>
+    <string name="compare_original_press_and_hold">Compare Original Press and Hold</string>
+</resources>
