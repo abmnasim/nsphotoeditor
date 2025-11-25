@@ -6,7 +6,6 @@ import static android.view.View.VISIBLE;
 import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -29,14 +28,11 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.nsphotoeditor.adapters.FeatureAdapter;
-import com.example.nsphotoeditor.adapters.FrameAdapter;
-import com.example.nsphotoeditor.callbacks.FrameListener;
 import com.example.nsphotoeditor.enums.FeatureType;
 import com.example.nsphotoeditor.features.BrightnessOperation;
 import com.example.nsphotoeditor.features.ContrastOperation;
 import com.example.nsphotoeditor.features.ExposureOperation;
 import com.example.nsphotoeditor.features.FlipOperation;
-import com.example.nsphotoeditor.features.FrameOperation;
 import com.example.nsphotoeditor.features.PixelateOperation;
 import com.example.nsphotoeditor.features.RotationOperation;
 import com.example.nsphotoeditor.features.SaturationOperation;
@@ -48,9 +44,7 @@ import com.example.nsphotoeditor.utils.FeatureItem;
 import com.example.nsphotoeditor.utils.FeatureState;
 
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,7 +67,7 @@ public class EditorActivity extends AppCompatActivity {
     private final Stack<HashMap<String, FeatureState>> undoStack = new Stack<>();
     private final Stack<HashMap<String, FeatureState>> redoStack = new Stack<>();
 
-    private String selectedFeatureKey = null;
+    private FeatureItem selectedFeature = null;
     private long lastRebuildMs = 0;
     private static final long REBUILD_DEBOUNCE_MS = 60;
 
@@ -225,8 +219,7 @@ public class EditorActivity extends AppCompatActivity {
         featureConfigs.put("vignette", new FeatureConfig(0f, 1f, 0f, false));
         featureConfigs.put("pixelate", new FeatureConfig(0f, 60f, 0f, false));
         featureConfigs.put("rotate", new FeatureConfig(0f, 360f, 0f, false));
-        featureConfigs.put("flipH", new FeatureConfig(0f, 1f, 0f, false));
-        featureConfigs.put("flipV", new FeatureConfig(0f, 1f, 0f, false));
+        featureConfigs.put("flip", new FeatureConfig(0f, 1f, 0f, false));
 //        featureConfigs.put("roundMask", new FeatureConfig(0f, 1f, 0f, false));
     }
 
@@ -244,15 +237,15 @@ public class EditorActivity extends AppCompatActivity {
     private void setupFeatureList() {
         List<FeatureItem> items = new ArrayList<>();
 //        items.add(new FeatureItem("Frame", android.R.drawable.ic_menu_gallery, FeatureType.FRAME_SELECTOR));
-        items.add(new FeatureItem("Contrast", android.R.drawable.ic_menu_manage, FeatureType.ADJUSTABLE));
-        items.add(new FeatureItem("Saturation", android.R.drawable.ic_menu_gallery, FeatureType.ADJUSTABLE));
-        items.add(new FeatureItem("Brightness", android.R.drawable.ic_menu_day, FeatureType.ADJUSTABLE));
-        items.add(new FeatureItem("Exposure", android.R.drawable.ic_menu_camera, FeatureType.ADJUSTABLE));
-        items.add(new FeatureItem("Warmth", android.R.drawable.ic_menu_compass, FeatureType.ADJUSTABLE));
-        items.add(new FeatureItem("Vignette", android.R.drawable.ic_menu_crop, FeatureType.ADJUSTABLE));
-        items.add(new FeatureItem("Pixelate", android.R.drawable.ic_menu_crop, FeatureType.ADJUSTABLE));
-        items.add(new FeatureItem("Flip H", R.drawable.swap_horiz_icon, FeatureType.INSTANT));
-        items.add(new FeatureItem("Rotate", android.R.drawable.ic_menu_rotate, FeatureType.ADJUSTABLE));
+        items.add(new FeatureItem("contrast", "Contrast", android.R.drawable.ic_menu_manage, FeatureType.ADJUSTABLE));
+        items.add(new FeatureItem("saturation", "Saturation", android.R.drawable.ic_menu_gallery, FeatureType.ADJUSTABLE));
+        items.add(new FeatureItem("brightness", "Brightness", android.R.drawable.ic_menu_day, FeatureType.ADJUSTABLE));
+        items.add(new FeatureItem("exposure", "Exposure", android.R.drawable.ic_menu_camera, FeatureType.ADJUSTABLE));
+        items.add(new FeatureItem("warmth", "Warmth", android.R.drawable.ic_menu_compass, FeatureType.ADJUSTABLE));
+        items.add(new FeatureItem("vignette", "Vignette", android.R.drawable.ic_menu_crop, FeatureType.ADJUSTABLE));
+        items.add(new FeatureItem("pixelate", "Pixelate", android.R.drawable.ic_menu_crop, FeatureType.ADJUSTABLE));
+        items.add(new FeatureItem("flip", "Flip", R.drawable.swap_horiz_icon, FeatureType.INSTANT));
+        items.add(new FeatureItem("rotate", "Rotate", android.R.drawable.ic_menu_rotate, FeatureType.ADJUSTABLE));
 //        items.add(new FeatureItem("Round Mask", android.R.drawable.ic_menu_rotate, FeatureType.INSTANT));
 
         FeatureAdapter adapter = new FeatureAdapter(items, this::onFeatureClicked);
@@ -261,11 +254,10 @@ public class EditorActivity extends AppCompatActivity {
     }
 
     private void onFeatureClicked(FeatureItem item) {
-        final String name = item.name;
         if (item.type == FeatureType.ADJUSTABLE) {
-            String key = featureKeyFromDisplay(name);
-            if (key == null) return;
-            openControllerForFeature(key, name);
+//            String key = featureKeyFromDisplay(name);
+//            if (key == null) return;
+            openControllerForFeature(item);
         }
 //        else if (item.type == FeatureType.FRAME_SELECTOR) {
 //            String key = featureKeyFromDisplay(name);
@@ -273,33 +265,18 @@ public class EditorActivity extends AppCompatActivity {
 //            openFrameSelector(key, name);
 //        }
         else{
-            performInstantOperationByName(name);
+            performInstantOperationByName(item);
         }
     }
 
-    private String featureKeyFromDisplay(String display) {
-        switch (display) {
-            case "Contrast": return "contrast";
-            case "Saturation": return "saturation";
-            case "Brightness": return "brightness";
-            case "Exposure": return "exposure";
-            case "Warmth": return "warmth";
-            case "Vignette": return "vignette";
-            case "Pixelate": return "pixelate";
-            case "Rotate": return "rotate";
-//            case "Frame": return "frame";
-            default: return null;
-        }
-    }
-
-    private void performInstantOperationByName(String name) {
+    private void performInstantOperationByName(FeatureItem item) {
         // save current state snapshot for undo
         pushUndoSnapshot();
 
         FeatureState fs;
-        switch (name) {
-            case "Flip H":
-                fs = featureStates.get("flipH");
+        switch (item.id) {
+            case "flip":
+                fs = featureStates.get(item.id);
                 fs.value = 1f - fs.value;
                 fs.applied = true;
                 break;
@@ -376,23 +353,23 @@ public class EditorActivity extends AppCompatActivity {
 //    }
 
     // ------------- Controller open/close and actions --------------
-    private void openControllerForFeature(String key, String displayName) {
-        selectedFeatureKey = key;
+    private void openControllerForFeature(FeatureItem feature) {
+        selectedFeature = feature;
         btnSave.setVisibility(GONE);
         btnReset.setVisibility(VISIBLE);
-        controllerTitle.setText(displayName);
+        controllerTitle.setText(feature.name);
         rvFeatures.setVisibility(GONE);
         controllerContainer.setVisibility(VISIBLE);
 
         // configure seek bar
-        FeatureConfig cfg = featureConfigs.get(key);
+        FeatureConfig cfg = featureConfigs.get(selectedFeature.id);
         if (cfg == null) return;
         seekBar.setMax(SEEKBAR_MAX);
 
-        FeatureState fs = featureStates.get(key);
+        FeatureState fs = featureStates.get(selectedFeature.id);
         if (fs == null) {
             fs = new FeatureState(paramToSeek(cfg.defaultValue, cfg), cfg.defaultValue, false);
-            featureStates.put(key, fs);
+            featureStates.put(selectedFeature.id, fs);
         }
 
         // set seek to stored value for the feature
@@ -401,14 +378,16 @@ public class EditorActivity extends AppCompatActivity {
 
         // apply preview with stored value (do not commit)
         // we'll apply live when user changes seekbar; but show current pipeline with this stored value as preview
-        rebuildPipelineAsyncWithTemporary(key, storedSeek);
+        rebuildPipelineAsyncWithTemporary(selectedFeature.id, storedSeek);
     }
 
     private void closeControllerAndResultUI() {
-        selectedFeatureKey = null;
+        selectedFeature = null;
         controllerContainer.setVisibility(GONE);
 //        frameControllerContainer.setVisibility(GONE);
         rvFeatures.setVisibility(VISIBLE);
+        btnSave.setVisibility(VISIBLE);
+        btnReset.setVisibility(GONE);
     }
 
     private void setupControllerActions() {
@@ -418,21 +397,22 @@ public class EditorActivity extends AppCompatActivity {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
 //                if (!fromUser) return;
-                if (selectedFeatureKey == null) return;
+                if (selectedFeature == null) return;
 
-                FeatureConfig cfg = featureConfigs.get(selectedFeatureKey);
+                FeatureConfig cfg = featureConfigs.get(selectedFeature.id);
                 if (cfg == null) return;
 
                 // store progress temporarily to featureStates (but not mark applied untile Apply)
-                FeatureState fs = featureStates.get(selectedFeatureKey);
+                FeatureState fs = featureStates.get(selectedFeature.id);
                 if (fs == null) {
                     fs = new FeatureState(progress, seekToParam(progress, cfg), false);
-                    featureStates.put(selectedFeatureKey, fs);
-                }else{
+                    featureStates.put(selectedFeature.id, fs);
+                }
+//                else{
 //                    fs.seekValue = progress;
 //                    fs.value = seekToParam(progress, cfg);
-                    rebuildPipelineAsyncWithTemporary(selectedFeatureKey, progress); // 24/11/25-11:35 PM
-                }
+//                    rebuildPipelineAsyncWithTemporary(selectedFeature.id, progress); // 24/11/25-11:35 PM
+//                }
 
                 // debounce quick updates
                 long now = SystemClock.uptimeMillis();
@@ -441,7 +421,7 @@ public class EditorActivity extends AppCompatActivity {
                     lastRebuildMs = now;
                 }
 
-                rebuildPipelineAsyncWithTemporary(selectedFeatureKey, progress);
+                rebuildPipelineAsyncWithTemporary(selectedFeature.id, progress);
             }
 
             @Override
@@ -458,8 +438,8 @@ public class EditorActivity extends AppCompatActivity {
         btnReset.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (selectedFeatureKey == null) return;
-                FeatureConfig cfg = featureConfigs.get(selectedFeatureKey);
+                if (selectedFeature == null) return;
+                FeatureConfig cfg = featureConfigs.get(selectedFeature.id);
                 if (cfg == null) return;
                 int defSeek = paramToSeek(cfg.defaultValue, cfg);
                 seekBar.setProgress(defSeek);
@@ -482,17 +462,17 @@ public class EditorActivity extends AppCompatActivity {
         btnApply.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (selectedFeatureKey == null) return;
+                if (selectedFeature == null) return;
 
                 // push snapshot for undo
                 pushUndoSnapshot();
 
-                FeatureConfig cfg = featureConfigs.get(selectedFeatureKey);
+                FeatureConfig cfg = featureConfigs.get(selectedFeature.id);
 
                 int progress = seekBar.getProgress();
 
                 // commit the feature state (mark applied true)
-                FeatureState fs = featureStates.get(selectedFeatureKey);
+                FeatureState fs = featureStates.get(selectedFeature.id);
 
                 if (fs != null) {
                     fs.seekValue = progress; // 24/11/25 - 11:36
@@ -585,7 +565,7 @@ public class EditorActivity extends AppCompatActivity {
 
                 // 9. flip horizontal
                 FlipOperation fo = new FlipOperation();
-                tmp = fo.apply(tmp, getEffectiveParam("flipH", temporaryFeatureKey, tempSeek));
+                tmp = fo.apply(tmp, getEffectiveParam("flip", temporaryFeatureKey, tempSeek));
 
                 // 10. flip horizontal
 //                FrameOperation fro = new FrameOperation();
