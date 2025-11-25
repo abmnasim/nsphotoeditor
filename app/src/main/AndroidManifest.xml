@@ -12,6 +12,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.NSPhotoEditor">
         <activity
+            android:name=".FullImageActivity"
+            android:exported="false" />
+        <activity
             android:name=".EditorActivity"
             android:exported="false" />
         <activity

@@ -4,11 +4,17 @@ import static android.view.View.GONE;
 import static android.view.View.VISIBLE;
 
 import android.annotation.SuppressLint;
+import android.app.ProgressDialog;
+import android.content.ContentValues;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.SystemClock;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
@@ -17,6 +23,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.annotation.Nullable;
@@ -42,12 +49,21 @@ import com.example.nsphotoeditor.utils.BitmapUtils;
 import com.example.nsphotoeditor.utils.FeatureConfig;
 import com.example.nsphotoeditor.utils.FeatureItem;
 import com.example.nsphotoeditor.utils.FeatureState;
+import com.example.nsphotoeditor.utils.LoadingDialog;
 
+import org.json.JSONArray;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Stack;
 
 public class EditorActivity extends AppCompatActivity {
@@ -72,6 +88,9 @@ public class EditorActivity extends AppCompatActivity {
     private static final long REBUILD_DEBOUNCE_MS = 60;
 
 //    private Bitmap[] frameBitmaps = new Bitmap[11];
+
+    // Variables for Save
+    LoadingDialog loadingDialog = new LoadingDialog(this);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -132,6 +151,115 @@ public class EditorActivity extends AppCompatActivity {
         setupTopButtons();
         setupCompareButton();
         setupControllerActions();
+
+        btnSave.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                saveOutput();
+            }
+        });
+    }
+
+    private void saveOutput() {
+        Bitmap bitmapToSave = (currentBitmap != null) ? currentBitmap : baseBitmap;
+
+        loadingDialog.show();
+
+        new Thread(() -> {
+            Uri savedUri = saveImagePNG(bitmapToSave);
+
+            runOnUiThread(() -> {
+                loadingDialog.dismiss();
+
+                if (savedUri != null) {
+                    Toast.makeText(this, "Saved Successfully!", Toast.LENGTH_SHORT).show();
+
+                    saveToRecentList(savedUri.toString());
+                    shareImage(savedUri);
+                }else{
+                    Toast.makeText(this, "Failed to Save!", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }).start();
+    }
+
+    private Uri saveImagePNG(Bitmap bitmap) {
+        String filename = "NSPhoto_" + System.currentTimeMillis() + ".png";
+        OutputStream fos;
+        Uri imageUri = null;
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Images.Media.DISPLAY_NAME, filename);
+                values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");;
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/HSPhotoEditor");
+                values.put(MediaStore.Images.Media.IS_PENDING, 1);
+
+                imageUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                fos = getContentResolver().openOutputStream(imageUri);
+
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                fos.close();
+
+                values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                getContentResolver().update(imageUri, values, null, null);
+            }else{
+                File dir = new File(Environment.getExternalStorageDirectory() + "/Pictures/NSPhotoEditor");
+                if (!dir.exists()) dir.mkdir();
+
+                File file = new File(dir, filename);
+                fos = new FileOutputStream(file);
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                fos.close();
+
+                imageUri = Uri.fromFile(file);
+
+                sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, imageUri));
+            }
+
+            return imageUri;
+
+        } catch (IOException e) {
+            Log.e(TAG, "saveImagePNG: ", e.fillInStackTrace());
+//            throw new RuntimeException(e);
+            return null;
+
+        }
+    }
+
+    private void shareImage(Uri uri) {
+        Intent shareIntent = new Intent(Intent.ACTION_SEND);
+        shareIntent.setType("image/png");
+        shareIntent.putExtra(Intent.EXTRA_STREAM, uri);
+        shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+        startActivity(Intent.createChooser(shareIntent, "Share Image"));
+    }
+
+    private void saveToRecentList(String uri) {
+        SharedPreferences prefs = getSharedPreferences("recent_images", MODE_PRIVATE);
+        String json = prefs.getString("images_json", "[]");
+
+        try {
+            JSONArray array = new JSONArray(json);
+
+            // remove duplicate if exists
+            for (int i = 0; i < array.length(); i++) {
+                if (array.getString(i).equals(uri)) {
+                    array.remove(i);
+                    break;
+                }
+            }
+
+            // add new image at end (or beginning if you want reverse)
+            array.put(uri);
+
+            prefs.edit().putString("images_json", array.toString()).apply();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
 //    private void loadFrames() {
