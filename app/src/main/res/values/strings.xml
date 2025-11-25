@@ -8,4 +8,9 @@
     <string name="recent_image">Recent Image</string>
     <string name="add_image">Add image</string>
     <string name="compare_original_press_and_hold">Compare Original Press and Hold</string>
+    <string name="editor">Editor</string>
+    <string name="save">Save</string>
+    <string name="reset">Reset</string>
+    <string name="cancel">Cancel</string>
+    <string name="apply">Apply</string>
 </resources>

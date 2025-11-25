@@ -36,7 +36,15 @@ public class MainActivity extends AppCompatActivity {
 
         setupPickImageCallback();
 
-        findViewById(R.id.open_sheet_btn).setOnClickListener(view -> openBottomSheet());
+//        findViewById(R.id.open_sheet_btn).setOnClickListener(view -> openBottomSheet());
+//        openBottomSheet();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        openBottomSheet();
     }
 
     private void setupPickImageCallback() {
@@ -57,10 +65,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void openBottomSheet() {
         BottomSheetDialog dialog = new BottomSheetDialog(this);
-        @SuppressLint("InflateParams") View view = LayoutInflater.from(this).inflate(R.layout.dialog_bottom_sheet, null);
+        View view = getLayoutInflater().inflate(R.layout.dialog_bottom_sheet, null);
         Button openGalleryBtn = view.findViewById(R.id.gallery_btn);
         openGalleryBtn.setOnClickListener(v -> {
-            dialog.dismiss();
+//            dialog.dismiss();
             pickImageFromGallery();
         });
         dialog.setContentView(view);

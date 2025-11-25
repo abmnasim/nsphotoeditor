@@ -6,11 +6,14 @@ import static android.view.View.VISIBLE;
 import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.SeekBar;
@@ -26,11 +29,14 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.nsphotoeditor.adapters.FeatureAdapter;
+import com.example.nsphotoeditor.adapters.FrameAdapter;
+import com.example.nsphotoeditor.callbacks.FrameListener;
 import com.example.nsphotoeditor.enums.FeatureType;
 import com.example.nsphotoeditor.features.BrightnessOperation;
 import com.example.nsphotoeditor.features.ContrastOperation;
 import com.example.nsphotoeditor.features.ExposureOperation;
 import com.example.nsphotoeditor.features.FlipOperation;
+import com.example.nsphotoeditor.features.FrameOperation;
 import com.example.nsphotoeditor.features.PixelateOperation;
 import com.example.nsphotoeditor.features.RotationOperation;
 import com.example.nsphotoeditor.features.SaturationOperation;
@@ -42,19 +48,21 @@ import com.example.nsphotoeditor.utils.FeatureItem;
 import com.example.nsphotoeditor.utils.FeatureState;
 
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Stack;
 
 public class EditorActivity extends AppCompatActivity {
-
+    private static final String TAG = "EDITOR";
     private ImageView imageView;
-    ImageButton btnFlip, btnUndo, btnRedo, btnSave, btnBack, btnReset, btnCancel, btnApply;
-    private RecyclerView rvFeatures;
-    private View controllerContainer;
+    ImageButton btnFlip, btnUndo, btnRedo, btnBack;
+    Button btnSave, btnCancel, btnApply, btnReset;
+    private RecyclerView rvFeatures, rvFrames;
+    private View controllerContainer, frameControllerContainer;
     private TextView controllerTitle;
     private SeekBar seekBar;
     private Bitmap baseBitmap, currentBitmap;
@@ -69,6 +77,8 @@ public class EditorActivity extends AppCompatActivity {
     private long lastRebuildMs = 0;
     private static final long REBUILD_DEBOUNCE_MS = 60;
 
+//    private Bitmap[] frameBitmaps = new Bitmap[11];
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -82,9 +92,9 @@ public class EditorActivity extends AppCompatActivity {
 
         imageView = findViewById(R.id.image_view);
         btnBack = findViewById(R.id.back_btn);
-        btnUndo = findViewById(R.id.undo_btn);
-        btnRedo = findViewById(R.id.redo_btn);
-        btnSave = findViewById(R.id.save_btn);
+//        btnUndo = findViewById(R.id.undo_btn);
+//        btnRedo = findViewById(R.id.redo_btn);
+        btnSave = findViewById(R.id.btn_save);
         btnFlip = findViewById(R.id.flip_preview_btn);
 
         btnReset = findViewById(R.id.btn_reset);
@@ -92,13 +102,16 @@ public class EditorActivity extends AppCompatActivity {
         btnApply = findViewById(R.id.btn_apply);
 
         rvFeatures = findViewById(R.id.rv_features);
+//        rvFrames = findViewById(R.id.rv_frames);
         controllerContainer = findViewById(R.id.controller_container);
-        controllerTitle = findViewById(R.id.controller_title);
+//        frameControllerContainer = findViewById(R.id.frame_controller_container);
+        controllerTitle = findViewById(R.id.operation_name);
 
         seekBar = findViewById(R.id.seekbar);
 
         initFeatureConfigs();
         initFeatureStates();
+//        loadFrames();
 
         // Load image from intent
         Uri uri = null;
@@ -112,7 +125,7 @@ public class EditorActivity extends AppCompatActivity {
         try {
             baseBitmap = BitmapUtils.loadSampledBitmap(this, uri, 1080, 1920);
         } catch (IOException e) {
-            e.printStackTrace();
+            Log.e(TAG, "onCreate: ", e.fillInStackTrace());
             finish();
             return;
         }
@@ -127,6 +140,19 @@ public class EditorActivity extends AppCompatActivity {
         setupControllerActions();
     }
 
+//    private void loadFrames() {
+//        frameBitmaps[1] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_1);
+//        frameBitmaps[2] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_2);
+//        frameBitmaps[3] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_3);
+//        frameBitmaps[4] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_4);
+//        frameBitmaps[5] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_5);
+//        frameBitmaps[6] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_6);
+//        frameBitmaps[7] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_7);
+//        frameBitmaps[8] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_8);
+//        frameBitmaps[9] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_9);
+//        frameBitmaps[10] = BitmapFactory.decodeResource(getResources(), R.drawable.frame_10);
+//    }
+
     private void setupTopButtons() {
         btnBack.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -136,40 +162,40 @@ public class EditorActivity extends AppCompatActivity {
             }
         });
 
-        btnUndo.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!undoStack.isEmpty()) {
-                    // push current to redo
-                    pushRedoSnapshot();
-                    HashMap<String, FeatureState> prev = undoStack.pop();
-                    // replace featureStates with prev
-                    featureStates.clear();
+//        btnUndo.setOnClickListener(new View.OnClickListener() {
+//            @Override
+//            public void onClick(View v) {
+//                if (!undoStack.isEmpty()) {
+//                    // push current to redo
+//                    pushRedoSnapshot();
+//                    HashMap<String, FeatureState> prev = undoStack.pop();
+//                    // replace featureStates with prev
+//                    featureStates.clear();
+//
+//                    featureStates.putAll(deepCopyFeatureStates(prev));
+//                    rebuildPipelineAsync();
+//                }else{
+//                    btnUndo.setEnabled(false);
+//                }
+//            }
+//        });
 
-                    featureStates.putAll(deepCopyFeatureStates(prev));
-                    rebuildPipelineAsync();
-                }else{
-                    btnUndo.setEnabled(false);
-                }
-            }
-        });
-
-        btnRedo.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!redoStack.isEmpty()) {
-                    // push current to undo
-                    pushUndoSnapshot();
-                    HashMap<String, FeatureState> next = redoStack.pop();
-                    // replace featureStates with next
-                    featureStates.clear();
-                    featureStates.putAll(next);
-                    rebuildPipelineAsync();
-                }else{
-                    btnRedo.setEnabled(false);
-                }
-            }
-        });
+//        btnRedo.setOnClickListener(new View.OnClickListener() {
+//            @Override
+//            public void onClick(View v) {
+//                if (!redoStack.isEmpty()) {
+//                    // push current to undo
+//                    pushUndoSnapshot();
+//                    HashMap<String, FeatureState> next = redoStack.pop();
+//                    // replace featureStates with next
+//                    featureStates.clear();
+//                    featureStates.putAll(next);
+//                    rebuildPipelineAsync();
+//                }else{
+//                    btnRedo.setEnabled(false);
+//                }
+//            }
+//        });
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -190,6 +216,7 @@ public class EditorActivity extends AppCompatActivity {
     }
 
     private void initFeatureConfigs() {
+//        featureConfigs.put("frame", new FeatureConfig(0f, 10f, 0f, false));
         featureConfigs.put("contrast", new FeatureConfig(0f, 2f, 1f, true));
         featureConfigs.put("saturation", new FeatureConfig(0f, 2f, 1f, true));
         featureConfigs.put("brightness", new FeatureConfig(-100f, 100f, 0f, true));
@@ -200,7 +227,7 @@ public class EditorActivity extends AppCompatActivity {
         featureConfigs.put("rotate", new FeatureConfig(0f, 360f, 0f, false));
         featureConfigs.put("flipH", new FeatureConfig(0f, 1f, 0f, false));
         featureConfigs.put("flipV", new FeatureConfig(0f, 1f, 0f, false));
-        featureConfigs.put("roundMask", new FeatureConfig(0f, 1f, 0f, false));
+//        featureConfigs.put("roundMask", new FeatureConfig(0f, 1f, 0f, false));
     }
 
     private void initFeatureStates() {
@@ -216,6 +243,7 @@ public class EditorActivity extends AppCompatActivity {
     // ------------------- Feature list (RecyclerView) ---------------------
     private void setupFeatureList() {
         List<FeatureItem> items = new ArrayList<>();
+//        items.add(new FeatureItem("Frame", android.R.drawable.ic_menu_gallery, FeatureType.FRAME_SELECTOR));
         items.add(new FeatureItem("Contrast", android.R.drawable.ic_menu_manage, FeatureType.ADJUSTABLE));
         items.add(new FeatureItem("Saturation", android.R.drawable.ic_menu_gallery, FeatureType.ADJUSTABLE));
         items.add(new FeatureItem("Brightness", android.R.drawable.ic_menu_day, FeatureType.ADJUSTABLE));
@@ -224,9 +252,8 @@ public class EditorActivity extends AppCompatActivity {
         items.add(new FeatureItem("Vignette", android.R.drawable.ic_menu_crop, FeatureType.ADJUSTABLE));
         items.add(new FeatureItem("Pixelate", android.R.drawable.ic_menu_crop, FeatureType.ADJUSTABLE));
         items.add(new FeatureItem("Flip H", R.drawable.swap_horiz_icon, FeatureType.INSTANT));
-        items.add(new FeatureItem("Flip V", R.drawable.swap_vert_icon, FeatureType.INSTANT));
         items.add(new FeatureItem("Rotate", android.R.drawable.ic_menu_rotate, FeatureType.ADJUSTABLE));
-        items.add(new FeatureItem("Round Mask", android.R.drawable.ic_menu_rotate, FeatureType.INSTANT));
+//        items.add(new FeatureItem("Round Mask", android.R.drawable.ic_menu_rotate, FeatureType.INSTANT));
 
         FeatureAdapter adapter = new FeatureAdapter(items, this::onFeatureClicked);
         rvFeatures.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
@@ -239,7 +266,13 @@ public class EditorActivity extends AppCompatActivity {
             String key = featureKeyFromDisplay(name);
             if (key == null) return;
             openControllerForFeature(key, name);
-        }else{
+        }
+//        else if (item.type == FeatureType.FRAME_SELECTOR) {
+//            String key = featureKeyFromDisplay(name);
+//            if (key == null) return;
+//            openFrameSelector(key, name);
+//        }
+        else{
             performInstantOperationByName(name);
         }
     }
@@ -254,6 +287,7 @@ public class EditorActivity extends AppCompatActivity {
             case "Vignette": return "vignette";
             case "Pixelate": return "pixelate";
             case "Rotate": return "rotate";
+//            case "Frame": return "frame";
             default: return null;
         }
     }
@@ -266,31 +300,14 @@ public class EditorActivity extends AppCompatActivity {
         switch (name) {
             case "Flip H":
                 fs = featureStates.get("flipH");
-                fs.value = 1f;
+                fs.value = 1f - fs.value;
                 fs.applied = true;
                 break;
-            case "Flip V":
-                fs = featureStates.get("flipV");
-                fs.value = 0f;
-                fs.applied = true;
-                break;
-//            case "Rotate 180":
-//                fs = featureStates.get("rotate");
-//                float newDeg180 = (fs.value + 180f) % 360f;
-//                fs.value = 1f - newDeg180;
+//            case "Round Mask":
+//                fs = featureStates.get("roundmask");
+//                fs.value = fs.value == 0f ? 1f : 0f;
 //                fs.applied = fs.value != 0f;
 //                break;
-//            case "Rotate 270":
-//                fs = featureStates.get("rotate");
-//                float newDeg270 = (fs.value + 270f) % 360f;
-//                fs.value = 1f - newDeg270;
-//                fs.applied = fs.value != 0f;
-//                break;
-            case "Round Mask":
-                fs = featureStates.get("roundmask");
-                fs.value = fs.value == 0f ? 1f : 0f;
-                fs.applied = fs.value != 0f;
-                break;
             default:
                 return;
         }
@@ -302,11 +319,67 @@ public class EditorActivity extends AppCompatActivity {
         redoStack.clear();
     }
 
+    // ----------- Frame Controller open/close and actions ----------
+    private void openFrameSelector(String key, String name) {
+//        selectedFeatureKey = key;
+//        btnSave.setVisibility(GONE);
+//        btnReset.setVisibility(VISIBLE);
+//        controllerTitle.setText(name);
+//        rvFeatures.setVisibility(GONE);
+//
+//        frameControllerContainer.setVisibility(VISIBLE);
+//        List<Integer> frameIcons = Arrays.asList(
+//            R.drawable.frame_1,
+//            R.drawable.frame_2,
+//            R.drawable.frame_3,
+//            R.drawable.frame_4,
+//            R.drawable.frame_5,
+//            R.drawable.frame_6,
+//            R.drawable.frame_7,
+//            R.drawable.frame_8,
+//            R.drawable.frame_9,
+//            R.drawable.frame_10
+//        );
+//
+//        FrameAdapter adapter = new FrameAdapter(frameIcons, this);
+//        rvFrames.bringToFront();
+//        rvFrames.invalidate();
+//        rvFrames.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+//        rvFrames.setAdapter(adapter);
+    }
+
+//    @Override
+//    public void onFrameClicked(int index) {
+//        Log.d(TAG, "onFrameClicked: "+ index);
+//        if (selectedFeatureKey == null) return;
+//
+//        FeatureConfig cfg = featureConfigs.get(selectedFeatureKey);
+//        if (cfg == null) return;
+//
+//        FeatureState fs = featureStates.get(selectedFeatureKey);
+//        if (fs == null) {
+//            fs = new FeatureState(index, seekToParam(index, cfg), false);
+//            featureStates.put(selectedFeatureKey, fs);
+//        }else{
+//            rebuildPipelineAsyncWithTemporary(selectedFeatureKey, index); // 24/11/25-11:35 PM
+//        }
+//
+//        // debounce quick updates
+//        long now = SystemClock.uptimeMillis();
+//        if (now - lastRebuildMs < REBUILD_DEBOUNCE_MS) {
+//            // stile update lastRebuildMs so we get spaced updates
+//            lastRebuildMs = now;
+//        }
+//
+//        rebuildPipelineAsyncWithTemporary(selectedFeatureKey, index);
+//
+//    }
 
     // ------------- Controller open/close and actions --------------
     private void openControllerForFeature(String key, String displayName) {
         selectedFeatureKey = key;
-
+        btnSave.setVisibility(GONE);
+        btnReset.setVisibility(VISIBLE);
         controllerTitle.setText(displayName);
         rvFeatures.setVisibility(GONE);
         controllerContainer.setVisibility(VISIBLE);
@@ -334,6 +407,7 @@ public class EditorActivity extends AppCompatActivity {
     private void closeControllerAndResultUI() {
         selectedFeatureKey = null;
         controllerContainer.setVisibility(GONE);
+//        frameControllerContainer.setVisibility(GONE);
         rvFeatures.setVisibility(VISIBLE);
     }
 
@@ -399,6 +473,9 @@ public class EditorActivity extends AppCompatActivity {
                 closeControllerAndResultUI();
 
                 rebuildPipelineAsync(); // 24/11/25 - 11:37
+                controllerTitle.setText("Editor");
+                btnSave.setVisibility(VISIBLE);
+                btnReset.setVisibility(GONE);
             }
         });
 
@@ -411,10 +488,12 @@ public class EditorActivity extends AppCompatActivity {
                 pushUndoSnapshot();
 
                 FeatureConfig cfg = featureConfigs.get(selectedFeatureKey);
+
                 int progress = seekBar.getProgress();
 
                 // commit the feature state (mark applied true)
                 FeatureState fs = featureStates.get(selectedFeatureKey);
+
                 if (fs != null) {
                     fs.seekValue = progress; // 24/11/25 - 11:36
                     fs.value = seekToParam(progress, cfg); // 24/11/25 - 11:36
@@ -504,12 +583,13 @@ public class EditorActivity extends AppCompatActivity {
                 RotationOperation ro = new RotationOperation();
                 tmp = ro.apply(tmp, getEffectiveParam("rotate", temporaryFeatureKey, tempSeek));
 
-                // 8. flip horizontal
+                // 9. flip horizontal
                 FlipOperation fo = new FlipOperation();
                 tmp = fo.apply(tmp, getEffectiveParam("flipH", temporaryFeatureKey, tempSeek));
 
-                // 9. flip vertical
-                tmp = fo.apply(tmp, getEffectiveParam("flipV", temporaryFeatureKey, tempSeek));
+                // 10. flip horizontal
+//                FrameOperation fro = new FrameOperation();
+//                tmp = fro.apply(tmp, tempSeek, frameBitmaps);
 
 
                 final Bitmap finalBmp = tmp;
@@ -522,7 +602,7 @@ public class EditorActivity extends AppCompatActivity {
                 });
 
             } catch (Throwable t) {
-                t.printStackTrace();
+                Log.e(TAG, "rebuildPipelineAsync: ", t);
             }
         }).start();
     }
@@ -572,4 +652,6 @@ public class EditorActivity extends AppCompatActivity {
         float t = (param - cfg.min) / (cfg.max - cfg.min);
         return Math.round(t * SEEKBAR_MAX);
     }
+
+
 }
